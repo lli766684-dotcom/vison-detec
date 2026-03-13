@@ -1,0 +1,99 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Models (large files, download from HuggingFace)
+models/
+
+# Cache
+.cache/
+
+# Environment variables (may contain API keys)
+.env
+.env.local
+
+# Config with sensitive data
+config/multimodal.json
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# ==================== 旧版本文件（不需要上传） ====================
+
+# 根目录下的旧配置文件（已迁移到 config/）
+prompt_templates.json
+thresholds.json
+
+# 旧测试用例文件
+test_case_border.json
+test_case_fail.json
+test_case.json
+
+# 旧版本流水线
+pipeline_v1.py
+main.py
+
+# PDF 文档
+file/
+
+# 空目录
+api/
+
+# 旧示例数据
+sample_data/apples/
+sample_data/images/
+sample_data/reference/
+
+# ==================== 不需要上传的目录 ====================
+
+# 测试用例
+tests/
+
+# 示例数据
+sample_data/
+
+# 文档
+docs/
