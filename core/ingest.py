@@ -118,10 +118,15 @@ def _normalize_refund_images(refund_images_input: Union[List[str], List[Dict]]) 
                     f"允许值: {', '.join(sorted(VALID_SHOT_TYPES))}"
                 )
             
-            # auxiliary 类型的用户声明（必填）
+            # auxiliary 类型的用户声明（必填，10-80字）
             user_claim = str(item.get("user_claim", "")).strip()
-            if shot_type == "auxiliary" and not user_claim:
-                raise ValueError(f"退款图[{idx}] 为 auxiliary 时必须填写 user_claim")
+            if shot_type == "auxiliary":
+                if not user_claim:
+                    raise ValueError(f"退款图[{idx}] 为 auxiliary 时必须填写 user_claim")
+                if len(user_claim) < 10:
+                    raise ValueError(f"退款图[{idx}] user_claim 至少需要 10 个字（当前 {len(user_claim)} 字）")
+                if len(user_claim) > 80:
+                    raise ValueError(f"退款图[{idx}] user_claim 最多 80 个字（当前 {len(user_claim)} 字）")
             
             paths.append(path)
             meta_dict[path] = {
