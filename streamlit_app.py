@@ -9,12 +9,9 @@ from PIL import Image, ImageOps
 
 from core.compliance import evidence_compliance
 from core.evidence import build_object_evidence, evidence_writer
-from core.embeddings import VisionBackend
 from core.fusion import fusion_engine
 from core.ingest import ingest
-from core.object_module import feature_extract, object_consistency
 from core.preprocess import preprocess_images
-from core.prompts import load_prompt_config
 from core.multimodal_analyzer import multimodal_analyze_batch
 from main import load_threshold_config
 
@@ -119,16 +116,12 @@ def _init_state():
                 "preprocess": False,
                 "compliance": False,
                 "multimodal_analysis": False,
-                "feature_extract": False,
-                "object_consistency": False,
                 "fusion": False,
                 "evidence": False,
             },
             "error": {},
             "ctx": {},
         }
-    if "pipeline_mode" not in st.session_state:
-        st.session_state["pipeline_mode"] = "multimodal_main"
     if "prompt_cfg_text" not in st.session_state:
         st.session_state["prompt_cfg_text"] = PROMPT_FILE.read_text(encoding="utf-8-sig") if PROMPT_FILE.exists() else "{}"
     if "thresh_cfg_text" not in st.session_state:
@@ -161,11 +154,6 @@ def _init_state():
     # 参考图上传状态（按图片粒度）
     if "reference_image_list" not in st.session_state:
         st.session_state["reference_image_list"] = []
-
-
-@st.cache_resource(show_spinner=False)
-def _get_backend(name: str):
-    return VisionBackend(name=name)
 
 
 def _split_lines(text: str) -> List[str]:
@@ -943,57 +931,25 @@ def _debug_page():
             st.error(f"应用失败：{e}")
 
     st.markdown("### 调试配置")
-    c1, c2 = st.columns(2)
-    with c1:
-        backend_name = st.selectbox("向量后端", ["legacy", "clip"], index=0)
-        prompt_cfg_text = st.text_area("prompt 配置字段（JSON）", value=st.session_state["prompt_cfg_text"], height=300)
-    with c2:
-        thresh_cfg_text = st.text_area("threshold 配置字段（JSON）", value=st.session_state["thresh_cfg_text"], height=300)
+    thresh_cfg_text = st.text_area("threshold 配置字段（JSON）", value=st.session_state["thresh_cfg_text"], height=300)
 
     try:
-        prompt_cfg = json.loads(prompt_cfg_text)
         thresh_cfg = json.loads(thresh_cfg_text)
         st.success("配置 JSON 解析成功")
     except Exception as e:
         st.error(f"配置 JSON 解析失败：{e}")
         return
 
-    st.session_state["prompt_cfg_text"] = prompt_cfg_text
     st.session_state["thresh_cfg_text"] = thresh_cfg_text
     dbg = st.session_state["debug_state"]
     ctx = dbg["ctx"]
 
-    st.markdown("### 链路模式选择")
-    pipeline_mode = st.radio(
-        "选择执行链路",
-        options=["multimodal_main", "legacy_main"],
-        format_func=lambda x: {
-            "multimodal_main": "🚀 新主链模式（ingest → preprocess → compliance → multimodal_analysis → fusion → evidence）",
-            "legacy_main": "📊 旧链模式（ingest → preprocess → compliance → feature_extract → object_consistency → fusion → evidence）",
-        }[x],
-        key="pipeline_mode_radio",
-        index=0 if st.session_state.get("pipeline_mode") == "multimodal_main" else 1,
-    )
-    st.session_state["pipeline_mode"] = pipeline_mode
-    
-    is_multimodal_main = pipeline_mode == "multimodal_main"
-    
+    st.markdown("### 执行链路")
+    st.info("ingest → preprocess → compliance → multimodal_analysis → fusion → evidence")
     st.markdown("---")
     st.markdown("### 分步测试（必须按顺序）")
-    
-    if is_multimodal_main:
-        st.markdown("#### 🚀 新主链流程")
-        st.info("ingest → preprocess → compliance → multimodal_analysis → fusion → evidence")
-        
-        s1, s2, s3 = st.columns(3)
-        s4, s5, s6 = st.columns(3)
-    else:
-        st.markdown("#### 📊 旧链流程")
-        st.info("ingest → preprocess → compliance → feature_extract → object_consistency → fusion → evidence")
-        
-        s1, s2, s3 = st.columns(3)
-        s4, s5, s6 = st.columns(3)
-    
+    s1, s2, s3 = st.columns(3)
+    s4, s5, s6 = st.columns(3)
     s7, s8, s9 = st.columns(3)
 
     def _ok(name):
@@ -1043,179 +999,133 @@ def _debug_page():
     mm_cfg = st.session_state.get("multimodal_cfg", {})
     use_multimodal = mm_cfg.get("use_multimodal_api", False)
     
-    if is_multimodal_main:
-        if s4.button("Step4 multimodal_analysis", disabled=not dbg["step_ok"]["compliance"]):
-            if not use_multimodal:
-                st.info("多模态分析未启用，跳过此步骤")
+    # Step4 multimodal_analysis
+    if s4.button("Step4 multimodal_analysis", disabled=not dbg["step_ok"]["compliance"]):
+        if not use_multimodal:
+            st.info("多模态分析未启用，跳过此步骤")
+            _ok("multimodal_analysis")
+            ctx["mm_results"] = []
+        else:
+            try:
+                with st.spinner("正在进行多模态分析..."):
+                    ctx["mm_results"] = multimodal_analyze_batch(
+                        refund_images=ctx["req"]["refund_images"],
+                        refund_image_meta=ctx["req"]["refund_image_meta"],
+                        product_name=ctx["req"].get("product_name", ""),
+                        refund_reason=ctx["req"].get("refund_reason", ""),
+                        order_reference_images=ctx["req"]["order_reference_images"],
+                        order_reference_meta=ctx["req"]["order_reference_meta"],
+                        api_config=mm_cfg,
+                    )
                 _ok("multimodal_analysis")
-                ctx["mm_results"] = []
-            else:
-                try:
-                    with st.spinner("正在进行多模态分析..."):
-                        ctx["mm_results"] = multimodal_analyze_batch(
-                            refund_images=ctx["req"]["refund_images"],
-                            refund_image_meta=ctx["req"]["refund_image_meta"],
-                            product_name=ctx["req"].get("product_name", ""),
-                            refund_reason=ctx["req"].get("refund_reason", ""),
-                            order_reference_images=ctx["req"]["order_reference_images"],
-                            order_reference_meta=ctx["req"]["order_reference_meta"],
-                            api_config=mm_cfg,
-                        )
-                    _ok("multimodal_analysis")
-                    st.success("multimodal_analysis 成功")
-                    
-                    for idx, mm_result in enumerate(ctx["mm_results"]):
-                        with st.expander(f"退款图 {idx+1}: {Path(mm_result['path']).name}", expanded=False):
-                            shot_type = mm_result.get('predicted_shot_type', 'auxiliary')
+                st.success("multimodal_analysis 成功")
+                
+                for idx, mm_result in enumerate(ctx["mm_results"]):
+                    with st.expander(f"退款图 {idx+1}: {Path(mm_result['path']).name}", expanded=False):
+                        shot_type = mm_result.get('predicted_shot_type', 'auxiliary')
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("**类型判断**")
+                            st.write(f"声明类型: {mm_result.get('declared_shot_type', '-')}")
+                            st.write(f"预测类型: {shot_type}")
+                            type_match = mm_result.get('declared_shot_type') == shot_type
+                            st.write(f"类型一致: {'✅' if type_match else '⚠️'}")
+                        
+                        with col2:
+                            st.markdown("**内容检测**")
+                            st.write(f"包含商品: {'✅' if mm_result.get('contains_product') else '❌'}")
+                            st.write(f"包含损坏: {'✅' if mm_result.get('contains_damage') else '❌'}")
+                            st.write(f"损坏置信度: {mm_result.get('damage_confidence', 0):.2f}")
                             
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.markdown("**类型判断**")
-                                st.write(f"声明类型: {mm_result.get('declared_shot_type', '-')}")
-                                st.write(f"预测类型: {shot_type}")
-                                type_match = mm_result.get('declared_shot_type') == shot_type
-                                st.write(f"类型一致: {'✅' if type_match else '⚠️'}")
-                            
-                            with col2:
-                                st.markdown("**内容检测**")
-                                st.write(f"包含商品: {'✅' if mm_result.get('contains_product') else '❌'}")
-                                st.write(f"包含损坏: {'✅' if mm_result.get('contains_damage') else '❌'}")
-                                st.write(f"损坏置信度: {mm_result.get('damage_confidence', 0):.2f}")
-                                
-                                if shot_type in ["damage_with_order_link", "merchant_label_closeup"]:
-                                    st.write(f"包含关联证据: {'✅' if mm_result.get('contains_order_or_merchant_linkage') else '❌'}")
-                                    st.write(f"关联置信度: {mm_result.get('linkage_confidence', 0):.2f}")
-                            
-                            has_match_confidence = mm_result.get('product_match_confidence', 0) > 0
-                            if has_match_confidence:
-                                st.markdown("**匹配度**")
-                                st.write(f"商品匹配度: {mm_result.get('product_match_confidence', 0):.2f}")
-                                if shot_type in ["damage_with_order_link", "merchant_label_closeup"]:
-                                    st.write(f"关联物匹配度: {mm_result.get('reference_linkage_confidence', 0):.2f}")
-                            
-                            st.write(f"实拍可能性: {'✅' if mm_result.get('is_real_scene_likely') else '⚠️'}")
-                            
-                            # 新字段展示
-                            if shot_type in ["damage_closeup", "damage_with_order_link"]:
-                                damage_desc = mm_result.get('damage_description', '')
-                                if damage_desc:
-                                    st.markdown("**损坏描述**")
-                                    st.write(damage_desc)
-                            
-                            if shot_type == "damage_with_order_link":
-                                linkage_desc = mm_result.get('linkage_description', '')
-                                if linkage_desc:
-                                    st.markdown("**关联证据描述**")
-                                    st.write(linkage_desc)
-                            
-                            if shot_type == "merchant_label_closeup":
-                                readability = mm_result.get('label_readability', '未知')
-                                st.write(f"标签可读性: {readability}")
-                            
-                            if shot_type == "overview":
-                                shows_overall = mm_result.get('shows_overall_product_view', False)
-                                st.write(f"展示商品全貌: {'✅' if shows_overall else '⚠️'}")
-                            
-                            if shot_type == "auxiliary":
-                                claim_level = mm_result.get('claim_support_level', 'unknown')
-                                claim_analysis = mm_result.get('claim_analysis', '')
-                                st.write(f"声明支持度: {claim_level}")
-                                if claim_analysis:
-                                    st.write(f"分析: {claim_analysis}")
-                            
-                            st.markdown("**摘要**")
-                            st.write(mm_result.get('summary', '-'))
-                            
-                            if not mm_result.get('analysis_success'):
-                                st.error(f"分析失败: {mm_result.get('error', '未知错误')}")
-                except Exception as e:
-                    _fail("multimodal_analysis", e)
-                    st.error(f"multimodal_analysis 失败：{e}")
-        s4.caption("多模态图像理解")
-        
-        fusion_disabled = not dbg["step_ok"]["multimodal_analysis"]
-        if s5.button("Step5 fusion", disabled=fusion_disabled):
-            try:
-                mm_results = ctx.get("mm_results", [])
-                ctx["fusion"] = fusion_engine(ctx["comp"], ctx["thresholds"], mm_results, None)
-                _ok("fusion")
-                st.success("fusion 成功")
-                st.json(ctx["fusion"])
+                            if shot_type in ["damage_with_order_link", "merchant_label_closeup"]:
+                                st.write(f"包含关联证据: {'✅' if mm_result.get('contains_order_or_merchant_linkage') else '❌'}")
+                                st.write(f"关联置信度: {mm_result.get('linkage_confidence', 0):.2f}")
+                        
+                        has_match_confidence = mm_result.get('product_match_confidence', 0) > 0
+                        if has_match_confidence:
+                            st.markdown("**匹配度**")
+                            st.write(f"商品匹配度: {mm_result.get('product_match_confidence', 0):.2f}")
+                            if shot_type in ["damage_with_order_link", "merchant_label_closeup"]:
+                                st.write(f"关联物匹配度: {mm_result.get('reference_linkage_confidence', 0):.2f}")
+                        
+                        st.write(f"实拍可能性: {'✅' if mm_result.get('is_real_scene_likely') else '⚠️'}")
+                        
+                        # 新字段展示
+                        if shot_type in ["damage_closeup", "damage_with_order_link"]:
+                            damage_desc = mm_result.get('damage_description', '')
+                            if damage_desc:
+                                st.markdown("**损坏描述**")
+                                st.write(damage_desc)
+                        
+                        if shot_type == "damage_with_order_link":
+                            linkage_desc = mm_result.get('linkage_description', '')
+                            if linkage_desc:
+                                st.markdown("**关联证据描述**")
+                                st.write(linkage_desc)
+                        
+                        if shot_type == "merchant_label_closeup":
+                            readability = mm_result.get('label_readability', '未知')
+                            st.write(f"标签可读性: {readability}")
+                        
+                        if shot_type == "overview":
+                            shows_overall = mm_result.get('shows_overall_product_view', False)
+                            st.write(f"展示商品全貌: {'✅' if shows_overall else '⚠️'}")
+                        
+                        if shot_type == "auxiliary":
+                            claim_level = mm_result.get('claim_support_level', 'unknown')
+                            claim_analysis = mm_result.get('claim_analysis', '')
+                            st.write(f"声明支持度: {claim_level}")
+                            if claim_analysis:
+                                st.write(f"分析: {claim_analysis}")
+                        
+                        st.markdown("**摘要**")
+                        st.write(mm_result.get('summary', '-'))
+                        
+                        if not mm_result.get('analysis_success'):
+                            st.error(f"分析失败: {mm_result.get('error', '未知错误')}")
             except Exception as e:
-                _fail("fusion", e)
-                st.error(f"fusion 失败：{e}")
-        s5.caption("汇总风险等级")
-        
-        if s6.button("Step6 evidence", disabled=not dbg["step_ok"]["fusion"]):
-            try:
-                mm_results = ctx.get("mm_results", [])
-                ctx["evidence_text"] = evidence_writer(ctx["comp"], None, ctx["fusion"], mm_results)
-                ctx["object_evidence"] = build_object_evidence(ctx["comp"], None, ctx["evidence_text"], mm_results, ctx["fusion"])
-                ctx["result"] = {
-                    "trace_id": ctx["req"]["trace_id"],
-                    "object_match": ctx["fusion"]["object_match"],
-                    "confidence_score": ctx["fusion"]["confidence_score"],
-                    "image_risk_level": ctx["fusion"]["image_risk_level"],
-                    "evidence_text": ctx["evidence_text"],
-                    "evidence_compliance": ctx["comp"],
-                    "object_consistency": None,
-                    "object_evidence": ctx["object_evidence"],
-                }
-                _ok("evidence")
-                st.success("evidence 成功，已生成最终结果")
-                st.json(ctx["result"])
-            except Exception as e:
-                _fail("evidence", e)
-                st.error(f"evidence 失败：{e}")
-        s6.caption("生成结构化证据输出")
-        
-    else:
-        if s4.button("Step4 feature_extract", disabled=not dbg["step_ok"]["compliance"]):
-            try:
-                ctx["backend"] = _get_backend(backend_name)
-                ctx["feats"] = feature_extract(ctx["req"], ctx["prep"], ctx["backend"])
-                _ok("feature_extract")
-                st.success("feature_extract 成功")
-                st.write(
-                    f"参考图向量数={len(ctx['feats']['order_reference_vectors'])}, "
-                    f"退款图向量数={len(ctx['feats']['refund_vectors'])}"
-                )
-            except Exception as e:
-                _fail("feature_extract", e)
-                st.error(f"feature_extract 失败：{e}")
-        s4.caption("提取图像向量特征")
-        
-        if s5.button("Step5 object_consistency", disabled=not dbg["step_ok"]["feature_extract"]):
-            try:
-                prompt_fallback = load_prompt_config(None)
-                prompt_fallback.update(prompt_cfg)
-                ctx["obj"] = object_consistency(
-                    ctx["req"],
-                    ctx["feats"],
-                    ctx["backend"],
-                    prompt_fallback,
-                    ctx["comp"],
-                    ctx["thresholds"],
-                )
-                _ok("object_consistency")
-                st.success("object_consistency 成功")
-                st.json(ctx["obj"])
-            except Exception as e:
-                _fail("object_consistency", e)
-                st.error(f"object_consistency 失败：{e}")
-        s5.caption("判断商品一致性和损坏证据")
-        
-        if s6.button("Step6 fusion", disabled=not dbg["step_ok"]["object_consistency"]):
-            try:
-                obj = ctx.get("obj")
-                ctx["fusion"] = fusion_engine(ctx["comp"], ctx["thresholds"], [], obj)
-                _ok("fusion")
-                st.success("fusion 成功")
-                st.json(ctx["fusion"])
-            except Exception as e:
-                _fail("fusion", e)
-                st.error(f"fusion 失败：{e}")
-        s6.caption("汇总风险等级")
+                _fail("multimodal_analysis", e)
+                st.error(f"multimodal_analysis 失败：{e}")
+    s4.caption("多模态图像理解")
+    
+    # Step5 fusion
+    fusion_disabled = not dbg["step_ok"]["multimodal_analysis"]
+    if s5.button("Step5 fusion", disabled=fusion_disabled):
+        try:
+            mm_results = ctx.get("mm_results", [])
+            ctx["fusion"] = fusion_engine(ctx["comp"], ctx["thresholds"], mm_results, None)
+            _ok("fusion")
+            st.success("fusion 成功")
+            st.json(ctx["fusion"])
+        except Exception as e:
+            _fail("fusion", e)
+            st.error(f"fusion 失败：{e}")
+    s5.caption("汇总风险等级")
+    
+    # Step6 evidence
+    if s6.button("Step6 evidence", disabled=not dbg["step_ok"]["fusion"]):
+        try:
+            mm_results = ctx.get("mm_results", [])
+            ctx["evidence_text"] = evidence_writer(ctx["comp"], None, ctx["fusion"], mm_results)
+            ctx["object_evidence"] = build_object_evidence(ctx["comp"], None, ctx["evidence_text"], mm_results, ctx["fusion"])
+            ctx["result"] = {
+                "trace_id": ctx["req"]["trace_id"],
+                "object_match": ctx["fusion"]["object_match"],
+                "confidence_score": ctx["fusion"]["confidence_score"],
+                "image_risk_level": ctx["fusion"]["image_risk_level"],
+                "evidence_text": ctx["evidence_text"],
+                "evidence_compliance": ctx["comp"],
+                "object_consistency": None,
+                "object_evidence": ctx["object_evidence"],
+            }
+            _ok("evidence")
+            st.success("evidence 成功，已生成最终结果")
+            st.json(ctx["result"])
+        except Exception as e:
+            _fail("evidence", e)
+            st.error(f"evidence 失败：{e}")
+    s6.caption("生成结构化证据输出")
     
     if s7.button("重置调试状态"):
         st.session_state["debug_state"] = {
@@ -1228,8 +1138,8 @@ def _debug_page():
     s9.caption("清空当前分步执行状态")
 
     st.markdown("### 每步状态")
-    cols = st.columns(8)
-    order = ["ingest", "preprocess", "compliance", "multimodal_analysis", "feature_extract", "object_consistency", "fusion", "evidence"]
+    order = ["ingest", "preprocess", "compliance", "multimodal_analysis", "fusion", "evidence"]
+    cols = st.columns(len(order))
     for i, n in enumerate(order):
         if dbg["step_ok"][n]:
             cols[i].success(n)
