@@ -331,6 +331,11 @@ def build_object_evidence(
         "recommended_coverage": comp.get("recommended_coverage", {}),
         "evidence_rules_result": comp.get("evidence_rules_result", {}),
         "evidence_text": evidence_text,
+        # 补充字段：与文本输出保持一致
+        "shot_type_counts": comp.get("shot_type_counts", {}),
+        "shot_type_over_limit": comp.get("shot_type_over_limit", []),
+        "auxiliary_notes": comp.get("auxiliary_notes", []),
+        "compliance_level": comp.get("compliance_level"),
     }
     
     # 多模态证据
