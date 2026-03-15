@@ -200,7 +200,11 @@ def evidence_compliance(req: Dict, prep: Dict, thresholds: Dict) -> Dict:
     for shot_type, count in shot_type_counts.items():
         max_count = SHOT_TYPE_LIMITS.get(shot_type, {}).get("max", 999)
         if count > max_count:
-            shot_type_over_limit.append(shot_type)
+            shot_type_over_limit.append({
+                "shot_type": shot_type,
+                "count": count,
+                "max": max_count,
+            })
 
     # 5. 收集 auxiliary 用户声明（统一使用 user_claim 字段）
     auxiliary_notes = []

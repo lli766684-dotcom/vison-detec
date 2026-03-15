@@ -67,6 +67,8 @@ def _normalize_refund_images(refund_images_input: Union[List[str], List[Dict]]) 
     会进行输入校验：
     - 检查 path 是否存在
     - 检查 shot_type 是否在允许枚举中
+    - 检查 auxiliary 类型是否填写 user_claim
+    - 检查路径是否重复
     
     返回：
     - paths: 路径列表
@@ -77,6 +79,7 @@ def _normalize_refund_images(refund_images_input: Union[List[str], List[Dict]]) 
     
     paths = []
     meta_dict = {}
+    seen_paths = set()
     
     for idx, item in enumerate(refund_images_input):
         if isinstance(item, str):
@@ -84,6 +87,9 @@ def _normalize_refund_images(refund_images_input: Union[List[str], List[Dict]]) 
             path = str(item).strip()
             if not path:
                 raise ValueError(f"退款图[{idx}] 路径为空")
+            if path in seen_paths:
+                raise ValueError(f"退款图[{idx}] 路径重复：{path}")
+            seen_paths.add(path)
             paths.append(path)
             meta_dict[path] = {"shot_type": None, "user_claim": ""}
             
@@ -92,6 +98,9 @@ def _normalize_refund_images(refund_images_input: Union[List[str], List[Dict]]) 
             path = str(item.get("path", "")).strip()
             if not path:
                 raise ValueError(f"退款图[{idx}] 缺少 path 字段或 path 为空")
+            if path in seen_paths:
+                raise ValueError(f"退款图[{idx}] 路径重复：{path}")
+            seen_paths.add(path)
             
             shot_type = item.get("shot_type")
             if shot_type is None:
@@ -111,6 +120,8 @@ def _normalize_refund_images(refund_images_input: Union[List[str], List[Dict]]) 
             
             # auxiliary 类型的用户声明（必填）
             user_claim = str(item.get("user_claim", "")).strip()
+            if shot_type == "auxiliary" and not user_claim:
+                raise ValueError(f"退款图[{idx}] 为 auxiliary 时必须填写 user_claim")
             
             paths.append(path)
             meta_dict[path] = {
@@ -133,6 +144,7 @@ def _normalize_order_reference_images(reference_images_input: Union[List[str], L
     会进行输入校验：
     - 检查 path 是否存在
     - 检查 ref_type 是否在允许枚举中
+    - 检查路径是否重复
     
     返回：
     - paths: 路径列表
@@ -143,6 +155,7 @@ def _normalize_order_reference_images(reference_images_input: Union[List[str], L
     
     paths = []
     meta_dict = {}
+    seen_paths = set()
     
     for idx, item in enumerate(reference_images_input):
         if isinstance(item, str):
@@ -150,6 +163,9 @@ def _normalize_order_reference_images(reference_images_input: Union[List[str], L
             path = str(item).strip()
             if not path:
                 raise ValueError(f"参考图[{idx}] 路径为空")
+            if path in seen_paths:
+                raise ValueError(f"参考图[{idx}] 路径重复：{path}")
+            seen_paths.add(path)
             paths.append(path)
             meta_dict[path] = {"ref_type": "product_reference"}
             
@@ -158,6 +174,9 @@ def _normalize_order_reference_images(reference_images_input: Union[List[str], L
             path = str(item.get("path", "")).strip()
             if not path:
                 raise ValueError(f"参考图[{idx}] 缺少 path 字段或 path 为空")
+            if path in seen_paths:
+                raise ValueError(f"参考图[{idx}] 路径重复：{path}")
+            seen_paths.add(path)
             
             ref_type = item.get("ref_type")
             if ref_type is None:

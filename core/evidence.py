@@ -238,8 +238,9 @@ def evidence_writer(
     auxiliary_notes = comp.get("auxiliary_notes", [])
     if auxiliary_notes:
         lines.append("【辅助图说明】")
-        for item in auxiliary_notes:
-            lines.append(f"  • {item.get('note', '')}")
+        # auxiliary_notes 现在是字符串列表
+        for note in auxiliary_notes:
+            lines.append(f"  • {note}")
         lines.append("")
     
     # ==================== 图像质量问题 ====================
