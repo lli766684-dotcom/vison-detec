@@ -1,7 +1,0 @@
-{
-    "env": {
-    "ANTHROPIC_BASE_URL": "https://yunwu.ai",
-    "ANTHROPIC_AUTH_TOKEN": "sk-PohBTpZ16JiaLcwVtQpfOGtMbLZLRiiSETeqSNlozxn1bFQV",
-    "ANTHROPIC_MODEL": "claude-haiku-4-5-20251001"   
-    }
-}

@@ -32,6 +32,8 @@ env/
 *.swp
 *.swo
 *~
+.claude/
+
 
 # Models (large files, download from HuggingFace)
 models/
@@ -43,8 +45,7 @@ models/
 .env
 .env.local
 
-# Config with sensitive data
-config/multimodal.json
+
 
 # Jupyter Notebook
 .ipynb_checkpoints/
@@ -63,9 +64,6 @@ logs/
 
 # ==================== 旧版本文件（不需要上传） ====================
 
-# 根目录下的旧配置文件（已迁移到 config/）
-prompt_templates.json
-thresholds.json
 
 # 旧测试用例文件
 test_case_border.json
