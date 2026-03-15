@@ -11,11 +11,50 @@ VALID_SHOT_TYPES: Set[str] = {
     "auxiliary",
 }
 
+# 旧名称到新名称的映射（用于兼容旧数据）
+SHOT_TYPE_ALIAS_MAP: Dict[str, str] = {
+    "merchant_marker": "merchant_label_closeup",
+    "merchant_label": "merchant_label_closeup",
+    "damage_link": "damage_with_order_link",
+    "damage_with_link": "damage_with_order_link",
+}
+
 # 允许的 ref_type 枚举
 VALID_REF_TYPES: Set[str] = {
     "product_reference",
     "order_link_reference",
 }
+
+
+def _normalize_required_shot_types(required_shot_types: List[str]) -> List[str]:
+    """
+    标准化并校验 required_shot_types 字段
+    
+    - 应用别名映射（兼容旧名称）
+    - 校验每个值是否合法
+    - 去重并保持顺序
+    """
+    if not required_shot_types:
+        return ["damage_closeup", "damage_with_order_link"]
+    
+    normalized = []
+    for idx, shot_type in enumerate(required_shot_types):
+        shot_type = str(shot_type).strip()
+        
+        # 应用别名映射
+        if shot_type in SHOT_TYPE_ALIAS_MAP:
+            shot_type = SHOT_TYPE_ALIAS_MAP[shot_type]
+        
+        if shot_type not in VALID_SHOT_TYPES:
+            raise ValueError(
+                f"required_shot_types[{idx}]='{shot_type}' 不合法，"
+                f"允许值: {', '.join(sorted(VALID_SHOT_TYPES))}"
+            )
+        
+        if shot_type not in normalized:
+            normalized.append(shot_type)
+    
+    return normalized
 
 
 def _normalize_refund_images(refund_images_input: Union[List[str], List[Dict]]) -> tuple:
@@ -59,6 +98,11 @@ def _normalize_refund_images(refund_images_input: Union[List[str], List[Dict]]) 
                 raise ValueError(f"退款图[{idx}] 缺少 shot_type 字段")
             
             shot_type = str(shot_type).strip()
+            
+            # 应用别名映射（兼容旧名称）
+            if shot_type in SHOT_TYPE_ALIAS_MAP:
+                shot_type = SHOT_TYPE_ALIAS_MAP[shot_type]
+            
             if shot_type not in VALID_SHOT_TYPES:
                 raise ValueError(
                     f"退款图[{idx}] shot_type='{shot_type}' 不合法，"
@@ -156,6 +200,10 @@ def ingest(payload: Dict) -> Dict:
         raise ValueError("At least one refund image is required")
 
     trace_id = payload.get("trace_id") or f"TRACE_{uuid.uuid4().hex[:12]}"
+    
+    # 标准化并校验 required_shot_types
+    required_shot_types = _normalize_required_shot_types(payload.get("required_shot_types"))
+    
     return {
         "order_id": payload["order_id"],
         "sku_id": payload["sku_id"],
@@ -177,7 +225,7 @@ def ingest(payload: Dict) -> Dict:
         "package_form": str(payload.get("package_form", "")).strip(),
         "spec": str(payload.get("spec", "")).strip(),
         "refund_reason": str(payload.get("refund_reason", "")).strip(),
-        "required_shot_types": payload.get("required_shot_types") or ["overview"],
-        "merchant_marker_required": bool(payload.get("merchant_marker_required", False)),
+        # 标准化后的必传图类型列表
+        "required_shot_types": required_shot_types,
         "trace_id": trace_id,
     }

@@ -202,14 +202,15 @@ def evidence_compliance(req: Dict, prep: Dict, thresholds: Dict) -> Dict:
         if count > max_count:
             shot_type_over_limit.append(shot_type)
 
-    # 5. 收集 auxiliary 备注（适配字典格式）
+    # 5. 收集 auxiliary 用户声明（统一使用 user_claim 字段）
     auxiliary_notes = []
     for path in refund_images:
         meta = refund_image_meta.get(path, {})
         shot_type = resolve_shot_type_by_path(path, req)
-        note = meta.get("note", "")
-        if shot_type == "auxiliary" and note:
-            auxiliary_notes.append(note)
+        # 统一使用 user_claim 字段（不再使用 note 等旧字段）
+        user_claim = meta.get("user_claim", "")
+        if shot_type == "auxiliary" and user_claim:
+            auxiliary_notes.append(user_claim)
 
     # 6. 收集图像质量问题
     issues = []
