@@ -102,8 +102,8 @@ def _init_state():
                 "E:/E-com/sample_data/normal_case/standard_2.png",
             ],
             "refund_images": ["E:/E-com/sample_data/normal_case/refund_1.png"],
-            "required_shot_types": ["overview", "damage_closeup", "merchant_marker"],
-            "merchant_marker_required": True,
+            "required_shot_types": ["overview", "damage_closeup", "merchant_label_closeup"],
+            "merchant_marker_required": True,  # 保留兼容，实际使用 required_shot_types
             "expected_labels": ["apple", "damaged apple", "fruit"],
             "negative_labels": ["banana", "pear", "cartoon", "poster", "screenshot"],
         }
