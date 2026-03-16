@@ -154,6 +154,16 @@ def _init_state():
     # 参考图上传状态（按图片粒度）
     if "reference_image_list" not in st.session_state:
         st.session_state["reference_image_list"] = []
+    # 记录已处理的文件名（防止重复添加）
+    if "processed_refund_files" not in st.session_state:
+        st.session_state["processed_refund_files"] = set()
+    if "processed_reference_files" not in st.session_state:
+        st.session_state["processed_reference_files"] = set()
+    # 文件上传器的唯一键（用于重置）
+    if "refund_uploader_key" not in st.session_state:
+        st.session_state["refund_uploader_key"] = 0
+    if "reference_uploader_key" not in st.session_state:
+        st.session_state["reference_uploader_key"] = 0
 
 
 def _split_lines(text: str) -> List[str]:
@@ -302,6 +312,8 @@ def _render_refund_image_item(idx: int, item: Dict, shot_types: List[str]) -> Di
     return item
 
 
+
+
 def _render_refund_upload_section_v2() -> Tuple[List[Dict], Dict]:
     """渲染退款图上传区域（新版：按图片粒度填写元信息）"""
     st.markdown("### 退款图片上传")
@@ -313,26 +325,61 @@ def _render_refund_upload_section_v2() -> Tuple[List[Dict], Dict]:
     # ==================== 上传区域 ====================
     st.markdown("---")
     
+    # 文件上传器（使用动态 key，确认添加后重置）
+    refund_uploader_key = f"refund_uploader_widget_{st.session_state.get('refund_uploader_key', 0)}"
     uploaded_files = st.file_uploader(
-        "上传退款图片",
+        "选择要上传的图片",
         type=["jpg", "jpeg", "png", "bmp", "webp"],
         accept_multiple_files=True,
-        key="refund_uploader_main",
-        help="支持批量上传，上传后可为每张图片选择类型",
+        key=refund_uploader_key,
+        help="选择图片后，点击「确认添加」按钮将图片添加到列表",
     )
     
+    # 显示待添加的文件预览
     if uploaded_files:
-        # 保存新上传的文件
-        existing_paths = [item["path"] for item in st.session_state["refund_image_list"]]
-        for idx, f in enumerate(uploaded_files):
-            saved_path = _save_upload_file(f, "refund", len(st.session_state["refund_image_list"]) + idx + 1)
-            if saved_path not in existing_paths:
-                st.session_state["refund_image_list"].append({
-                    "path": saved_path,
-                    "shot_type": "damage_closeup",  # 默认类型
-                    "user_claim": "",
-                    "user_claim_valid": True,
-                })
+        st.info(f"已选择 {len(uploaded_files)} 个文件，点击下方按钮确认添加")
+        
+        # 预览待添加的文件
+        preview_cols = st.columns(min(len(uploaded_files), 4))
+        for i, f in enumerate(uploaded_files[:4]):
+            with preview_cols[i]:
+                st.caption(f"📄 {f.name}")
+    
+    # 确认添加按钮
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ 确认添加选中的图片", key="confirm_add_refund", disabled=not uploaded_files):
+            existing_signatures = set()
+            for item in st.session_state["refund_image_list"]:
+                existing_signatures.add(Path(item["path"]).stem)
+            
+            added_count = 0
+            for f in uploaded_files:
+                file_signature = Path(f.name).stem
+                if file_signature not in existing_signatures:
+                    saved_path = _save_upload_file(f, "refund", len(st.session_state["refund_image_list"]) + 1)
+                    st.session_state["refund_image_list"].append({
+                        "path": saved_path,
+                        "shot_type": "damage_closeup",
+                        "user_claim": "",
+                        "user_claim_valid": True,
+                    })
+                    existing_signatures.add(file_signature)
+                    added_count += 1
+            
+            # 重置 file_uploader（通过改变 key 来清空缓存）
+            st.session_state["refund_uploader_key"] += 1
+            
+            if added_count > 0:
+                st.success(f"已添加 {added_count} 张图片")
+            else:
+                st.warning("所有选中的图片已存在于列表中")
+            st.rerun()
+    
+    with col2:
+        if st.button("🗑️ 清空所有退款图", key="clear_all_refund"):
+            st.session_state["refund_image_list"] = []
+            st.rerun()
     
     # ==================== 已上传图片列表 ====================
     if st.session_state["refund_image_list"]:
@@ -344,14 +391,20 @@ def _render_refund_upload_section_v2() -> Tuple[List[Dict], Dict]:
         recommended_types = ["overview", "merchant_label_closeup", "auxiliary"]
         all_shot_types = required_types + recommended_types
         
-        # 渲染每张图片
-        new_image_list = []
+        # 渲染每张图片，收集要删除的索引
+        to_delete = []
         for idx, item in enumerate(st.session_state["refund_image_list"]):
             updated_item = _render_refund_image_item(idx, item, all_shot_types)
-            if updated_item is not None:
-                new_image_list.append(updated_item)
+            if updated_item is None:
+                to_delete.append(idx)
+            else:
+                st.session_state["refund_image_list"][idx] = updated_item
         
-        st.session_state["refund_image_list"] = new_image_list
+        # 处理删除（从后往前删除，避免索引错乱）
+        if to_delete:
+            for idx in sorted(to_delete, reverse=True):
+                del st.session_state["refund_image_list"][idx]
+            st.rerun()
     
     # ==================== 统计状态 ====================
     status_info = {
@@ -478,37 +531,82 @@ def _render_reference_upload_section_v2() -> Tuple[List[Dict], Dict]:
     
     st.markdown("---")
     
+    # 文件上传器（使用动态 key，确认添加后重置）
+    reference_uploader_key = f"reference_uploader_widget_{st.session_state.get('reference_uploader_key', 0)}"
     uploaded_files = st.file_uploader(
-        "上传参考图片",
+        "选择要上传的参考图片",
         type=["jpg", "jpeg", "png", "bmp", "webp"],
         accept_multiple_files=True,
-        key="reference_uploader_main",
-        help="支持批量上传，上传后可为每张图片选择类型",
+        key=reference_uploader_key,
+        help="选择图片后，点击「确认添加」按钮将图片添加到列表",
     )
     
+    # 显示待添加的文件预览
     if uploaded_files:
-        existing_paths = [item["path"] for item in st.session_state["reference_image_list"]]
-        for idx, f in enumerate(uploaded_files):
-            saved_path = _save_upload_file(f, "reference", len(st.session_state["reference_image_list"]) + idx + 1)
-            if saved_path not in existing_paths:
-                st.session_state["reference_image_list"].append({
-                    "path": saved_path,
-                    "ref_type": "product_reference",
-                })
+        st.info(f"已选择 {len(uploaded_files)} 个文件，点击下方按钮确认添加")
+        
+        # 预览待添加的文件
+        preview_cols = st.columns(min(len(uploaded_files), 4))
+        for i, f in enumerate(uploaded_files[:4]):
+            with preview_cols[i]:
+                st.caption(f"📄 {f.name}")
     
+    # 确认添加按钮
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ 确认添加选中的参考图", key="confirm_add_reference", disabled=not uploaded_files):
+            existing_signatures = set()
+            for item in st.session_state["reference_image_list"]:
+                existing_signatures.add(Path(item["path"]).stem)
+            
+            added_count = 0
+            for f in uploaded_files:
+                file_signature = Path(f.name).stem
+                if file_signature not in existing_signatures:
+                    saved_path = _save_upload_file(f, "reference", len(st.session_state["reference_image_list"]) + 1)
+                    st.session_state["reference_image_list"].append({
+                        "path": saved_path,
+                        "ref_type": "product_reference",
+                    })
+                    existing_signatures.add(file_signature)
+                    added_count += 1
+            
+            # 重置 file_uploader（通过改变 key 来清空缓存）
+            st.session_state["reference_uploader_key"] += 1
+            
+            if added_count > 0:
+                st.success(f"已添加 {added_count} 张参考图")
+            else:
+                st.warning("所有选中的图片已存在于列表中")
+            st.rerun()
+    
+    with col2:
+        if st.button("🗑️ 清空所有参考图", key="clear_all_reference"):
+            st.session_state["reference_image_list"] = []
+            st.rerun()
+    
+    # ==================== 已上传图片列表 ====================
     if st.session_state["reference_image_list"]:
         st.markdown("### 已上传参考图（请为每张图选择类型）")
         st.markdown("---")
         
         all_ref_types = ["product_reference", "order_link_reference"]
         
-        new_image_list = []
+        # 渲染每张图片，收集要删除的索引
+        to_delete = []
         for idx, item in enumerate(st.session_state["reference_image_list"]):
             updated_item = _render_reference_image_item(idx, item, all_ref_types)
-            if updated_item is not None:
-                new_image_list.append(updated_item)
+            if updated_item is None:
+                to_delete.append(idx)
+            else:
+                # 更新 item 的字段
+                st.session_state["reference_image_list"][idx] = updated_item
         
-        st.session_state["reference_image_list"] = new_image_list
+        # 处理删除（从后往前删除，避免索引错乱）
+        if to_delete:
+            for idx in sorted(to_delete, reverse=True):
+                del st.session_state["reference_image_list"][idx]
+            st.rerun()
     
     # 统计状态
     status_info = {
