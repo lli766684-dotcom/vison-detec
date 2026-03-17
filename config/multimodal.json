@@ -1,8 +1,0 @@
-{
-  "use_multimodal_api": true,
-  "provider": "openai_compatible",
-  "api_base": "https://open.bigmodel.cn/api/paas/v4",
-  "api_key": "9cd1466987b84f778007379b2229b9ba.nJrMEZVrV35njv7N",
-  "model_name": "GLM-4.6V",
-  "timeout_sec": 120
-}
