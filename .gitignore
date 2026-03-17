@@ -45,6 +45,12 @@ models/
 .env
 .env.local
 
+# AI detector config (may contain local paths and API keys)
+config/ai_detector.json
+
+# Multimodal config (may contain API keys)
+config/multimodal.json
+
 
 
 # Jupyter Notebook

@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "detector_type": "mock",
+
+  "model_path": "",
+  "python_exe": "",
+  "script_path": "scripts/univfd_single_infer.py",
+  "arch": "CLIP:ViT-L/14",
+  "device": "cuda",
+
+  "api_base": "",
+  "api_key": "",
+  "model_name": "",
+
+  "timeout_sec": 60
+}

@@ -4,7 +4,7 @@ core/evidence.py
 证据输出模块
 负责：生成结构化证据和面向人的解释文本
 
-新主链：ingest -> preprocess -> compliance -> multimodal_analysis -> fusion -> evidence
+新主链：ingest -> preprocess -> compliance -> multimodal_analysis -> ai_fake_detector -> fusion -> evidence
 旧链（可选对照）：feature_extract -> object_consistency
 """
 
@@ -29,7 +29,8 @@ def evidence_writer(
     comp: Dict, 
     obj: Optional[Dict], 
     fusion: Dict, 
-    mm_results: List[Dict] = None
+    mm_results: List[Dict] = None,
+    ai_results: List[Dict] = None  # 新增：AI 检测结果
 ) -> List[str]:
     """
     生成证据说明文本
@@ -39,6 +40,7 @@ def evidence_writer(
         obj: 可选，object_consistency 模块输出（旧链）
         fusion: fusion 模块输出
         mm_results: multimodal_analysis 模块输出
+        ai_results: ai_fake_detector 模块输出（AI 生成/真实性检测结果）
     
     Returns:
         证据说明文本列表
@@ -99,8 +101,36 @@ def evidence_writer(
                 lines.append(f"  ❌ 商品与参考图匹配较低（平均匹配度={avg_match:.2f}），可能存在不一致")
         
         lines.append("")
+    
+    # ==================== AI 生成/真实性检测 ====================
+    if ai_results and len(ai_results) > 0:
+        lines.append("【AI生成/真实性检测】")
         
-        # 每张图详情
+        valid_ai = [x for x in ai_results if x.get("ai_analysis_success", True)]
+        suspect_ai = [x for x in valid_ai if x.get("is_ai_generated_suspected", False)]
+        high_ai = [x for x in valid_ai if x.get("forgery_risk_level") == "high"]
+        
+        lines.append(f"  已检测图像：{len(ai_results)} 张")
+        lines.append(f"  成功分析：{len(valid_ai)} 张")
+        lines.append(f"  疑似AI生成：{len(suspect_ai)} 张")
+        
+        if high_ai:
+            lines.append(f"  ❌ 存在高风险AI生成嫌疑图像：{len(high_ai)} 张")
+        elif suspect_ai:
+            lines.append(f"  ⚠️ 存在中等AI生成嫌疑图像")
+        else:
+            lines.append("  ✅ 未检测到明显AI生成痕迹")
+        
+        lines.append("")
+    
+    # ==================== 各图分析详情 ====================
+    # 构建 AI 结果映射（按路径索引）
+    ai_result_map = {}
+    if ai_results:
+        for ai in ai_results:
+            ai_result_map[ai.get("path", "")] = ai
+    
+    if mm_results and len(mm_results) > 0:
         lines.append("【各图分析详情】")
         for idx, mm in enumerate(mm_results):
             if not mm.get("analysis_success", True):
@@ -180,6 +210,21 @@ def evidence_writer(
                 claim_analysis = mm.get("claim_analysis", "")
                 if claim_analysis:
                     lines.append(f"    分析：{claim_analysis[:60]}..." if len(claim_analysis) > 60 else f"    分析：{claim_analysis}")
+            
+            # AI 生成/真实性检测结果
+            ai_item = ai_result_map.get(mm.get("path", ""))
+            if ai_item:
+                if not ai_item.get("ai_analysis_success", True):
+                    lines.append(f"    AI真伪检测：失败 - {ai_item.get('ai_error', '未知错误')}")
+                else:
+                    risk = ai_item.get("forgery_risk_level", "unknown")
+                    score = ai_item.get("ai_gen_score", 0.0)
+                    reason = ai_item.get("forgery_reason", "")
+                    
+                    risk_icon = {"low": "✅", "medium": "⚠️", "high": "❌"}.get(risk, "❓")
+                    lines.append(f"    AI生成嫌疑：{risk_icon} {risk.upper()}（score={score:.2f}）")
+                    if reason:
+                        lines.append(f"    原因：{reason}")
         
         lines.append("")
     
@@ -305,6 +350,7 @@ def build_object_evidence(
     obj: Optional[Dict], 
     evidence_text: List[str],
     mm_results: List[Dict] = None,
+    ai_results: List[Dict] = None,  # 新增：AI 检测结果
     fusion: Dict = None
 ) -> Dict:
     """
@@ -315,6 +361,7 @@ def build_object_evidence(
         obj: 可选，object_consistency 模块输出（旧链）
         evidence_text: 证据说明文本
         mm_results: multimodal_analysis 模块输出
+        ai_results: ai_fake_detector 模块输出（AI 生成/真实性检测结果）
         fusion: fusion 模块输出
     
     Returns:
@@ -348,6 +395,16 @@ def build_object_evidence(
             "linkage_images": linkage_images,
             "total_analyzed": len(mm_results),
             "analysis_success_count": sum(1 for mm in mm_results if mm.get("analysis_success", True)),
+        }
+    
+    # AI 伪造证据
+    if ai_results:
+        result["ai_forgery_evidence"] = {
+            "total_analyzed": len(ai_results),
+            "analysis_success_count": sum(1 for x in ai_results if x.get("ai_analysis_success", True)),
+            "suspect_images": [x["path"] for x in ai_results if x.get("is_ai_generated_suspected", False)],
+            "high_risk_images": [x["path"] for x in ai_results if x.get("forgery_risk_level") == "high"],
+            "detector_names": sorted(list({x.get("ai_detector_name", "") for x in ai_results if x.get("ai_detector_name")})),
         }
     
     # 融合结果

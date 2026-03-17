@@ -1,0 +1,8 @@
+{
+  "use_multimodal_api": false,
+  "provider": "openai_compatible",
+  "api_base": "",
+  "api_key": "",
+  "model_name": "gpt-4o-mini",
+  "timeout_sec": 60
+}

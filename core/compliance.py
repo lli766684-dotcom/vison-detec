@@ -3,12 +3,14 @@ from typing import Dict, List, Optional
 
 
 # 数量限制配置
+# 必传图：damage_closeup, damage_with_order_link（最少1张，最多3张）
+# 推荐图：overview, merchant_label_closeup, auxiliary（没有最少要求，最多3张）
 SHOT_TYPE_LIMITS = {
     "damage_closeup": {"min": 1, "max": 3},
     "damage_with_order_link": {"min": 1, "max": 3},
     "overview": {"min": 0, "max": 3},
-    "merchant_label_closeup": {"min": 0, "max": 2},
-    "auxiliary": {"min": 0, "max": 2},
+    "merchant_label_closeup": {"min": 0, "max": 3},
+    "auxiliary": {"min": 0, "max": 3},
 }
 
 

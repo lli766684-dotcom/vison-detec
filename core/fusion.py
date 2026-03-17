@@ -2,9 +2,9 @@
 core/fusion.py
 
 融合层模块
-负责：综合 compliance 和 multimodal_analysis 结果，输出最终判定
+负责：综合 compliance、multimodal_analysis 和 ai_fake_detector 结果，输出最终判定
 
-新主链：ingest -> preprocess -> compliance -> multimodal_analysis -> fusion -> evidence
+新主链：ingest -> preprocess -> compliance -> multimodal_analysis -> ai_fake_detector -> fusion -> evidence
 旧链（可选对照）：feature_extract -> object_consistency
 """
 
@@ -17,6 +17,7 @@ def fusion_engine(
     comp: Dict,
     thresholds: Dict,
     mm_results: List[Dict] = None,
+    ai_results: List[Dict] = None,  # 新增：AI 检测结果
     obj: Dict = None,  # 可选：旧链 object_consistency 结果，用于对照
 ) -> Dict:
     """
@@ -26,6 +27,7 @@ def fusion_engine(
         comp: compliance 模块输出（证据合规性）
         thresholds: 阈值配置
         mm_results: multimodal_analysis 模块输出（多模态分析结果）
+        ai_results: ai_fake_detector 模块输出（AI 生成/真实性检测结果）
         obj: 可选，object_consistency 模块输出（旧链对照）
     
     Returns:
@@ -34,6 +36,7 @@ def fusion_engine(
         - confidence_score: 置信度 (0.0-1.0)
         - image_risk_level: 风险等级 (low/medium/high)
         - mm_adjustment: 多模态调整幅度
+        - ai_adjustment: AI 检测调整幅度
         - fusion_reason: 融合原因列表
         - legacy_object_match: 旧链对照结果（如有）
     """
@@ -226,8 +229,79 @@ def fusion_engine(
         # 限制多模态调整幅度（最多 ±0.10）
         mm_adjustment = max(-0.10, min(0.10, mm_adjustment))
     
+    # ==================== AI 生成/真实性检测信号融合 ====================
+    ai_adjustment = 0.0
+    ai_signals = {
+        "total_analyzed": 0,
+        "success_count": 0,
+        "ai_suspect_count": 0,
+        "ai_suspect_rate": 0.0,
+        "ai_score_avg": 0.0,
+        "high_risk_count": 0,
+        "key_image_high_risk_count": 0,
+    }
+    
+    if ai_results and len(ai_results) > 0:
+        valid_ai = [x for x in ai_results if x.get("ai_analysis_success", True)]
+        ai_signals["total_analyzed"] = len(ai_results)
+        ai_signals["success_count"] = len(valid_ai)
+        
+        if valid_ai:
+            # 疑似 AI 生成的图像
+            suspect_list = [x for x in valid_ai if x.get("is_ai_generated_suspected", False)]
+            ai_scores = [x.get("ai_gen_score", 0.0) for x in valid_ai]
+            
+            ai_signals["ai_suspect_count"] = len(suspect_list)
+            ai_signals["ai_suspect_rate"] = len(suspect_list) / len(valid_ai)
+            ai_signals["ai_score_avg"] = sum(ai_scores) / len(ai_scores)
+            
+            # 高风险图像
+            high_risk = [x for x in valid_ai if x.get("forgery_risk_level") == "high"]
+            ai_signals["high_risk_count"] = len(high_risk)
+            
+            # 核心证据图（damage_closeup, damage_with_order_link）高风险数
+            key_types = {"damage_closeup", "damage_with_order_link"}
+            key_high_risk = [
+                x for x in high_risk
+                if x.get("declared_shot_type") in key_types
+            ]
+            ai_signals["key_image_high_risk_count"] = len(key_high_risk)
+        
+        # ==================== AI 检测调整逻辑 ====================
+        
+        # 1. 核心证据图存在高风险 AIGC 嫌疑
+        if ai_signals["key_image_high_risk_count"] >= 2:
+            ai_adjustment -= 0.08
+            fusion_reason.append("核心退款证据图均存在较强AI生成嫌疑")
+        elif ai_signals["key_image_high_risk_count"] == 1:
+            ai_adjustment -= 0.05
+            fusion_reason.append("关键退款图存在AI生成嫌疑")
+        
+        # 2. 整体可疑比例高
+        if ai_signals["ai_suspect_rate"] >= 0.7:
+            ai_adjustment -= 0.04
+            fusion_reason.append("多数退款图存在AI生成嫌疑")
+        elif ai_signals["ai_suspect_rate"] >= 0.4:
+            ai_adjustment -= 0.02
+            fusion_reason.append("部分退款图存在AI生成嫌疑")
+        
+        # 3. 平均分过高
+        if ai_signals["ai_score_avg"] >= 0.8:
+            ai_adjustment -= 0.04
+            fusion_reason.append("图像整体生成痕迹较强")
+        elif ai_signals["ai_score_avg"] >= 0.6:
+            ai_adjustment -= 0.02
+            fusion_reason.append("图像存在一定生成痕迹")
+        
+        # 4. 如果 AI 检测大量失败，不直接判死，提示人工复核
+        if ai_signals["total_analyzed"] > 0 and ai_signals["success_count"] / ai_signals["total_analyzed"] < 0.5:
+            fusion_reason.append("AI真伪检测成功率较低，建议人工复核")
+        
+        # 限制 AI 调整幅度（最多 -0.15）
+        ai_adjustment = max(-0.15, min(0.0, ai_adjustment))
+    
     # ==================== 计算最终置信度 ====================
-    confidence = clamp01(base_confidence + mm_adjustment)
+    confidence = clamp01(base_confidence + mm_adjustment + ai_adjustment)
     
     # ==================== 确定最终状态 ====================
     # 根据置信度调整状态
@@ -262,6 +336,11 @@ def fusion_engine(
     if mm_results:
         result["mm_adjustment"] = round(mm_adjustment, 4)
         result["mm_signals"] = mm_signals
+    
+    # 记录 AI 检测调整
+    if ai_results:
+        result["ai_adjustment"] = round(ai_adjustment, 4)
+        result["ai_signals"] = ai_signals
     
     # 记录旧链对照结果（如有）
     if obj:
